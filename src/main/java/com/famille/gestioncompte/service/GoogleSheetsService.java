@@ -74,6 +74,9 @@ public class GoogleSheetsService {
             }
             writer.writeOperation(monthKey, ligne, null, request.libelle(), request.compte(), request.montant());
         }
+        if (dejaDebite && Boolean.TRUE.equals(request.deduireDesCourses())) {
+            deduireDuBudgetCourses(monthKey, request.montant());
+        }
         return created;
     }
 
@@ -83,11 +86,37 @@ public class GoogleSheetsService {
 
     public void updateOperation(String monthKey, int ligne, UpdateOperationRequest req) throws IOException {
         validateCompte(req.compte());
-        writer.writeOperation(monthKey, ligne, req.date(), req.libelle(), req.compte(), req.montant());
+        if (req.montant() == null) {
+            writer.clearAmountCell(monthKey, ligne, req.compte());
+        } else {
+            writer.writeOperation(monthKey, ligne, req.date(), req.libelle(), req.compte(), req.montant());
+        }
     }
 
     public void deleteOperation(String monthKey, int ligne) throws IOException {
         writer.deleteRow(reader.resolveSheetId(monthKey), ligne);
+    }
+
+    public String transfererOperation(String monthKey, int ligne) throws IOException {
+        List<Object> row = reader.readRow(monthKey, ligne);
+        String libelle   = row.size() > 1 ? row.get(1).toString() : "";
+        Double montantC1 = row.size() > 2 ? reader.parseDouble(row.get(2).toString()) : null;
+        Double montantC2 = row.size() > 3 ? reader.parseDouble(row.get(3).toString()) : null;
+        String compte    = montantC1 != null ? appProperties.getComptes().getCompte1() : appProperties.getComptes().getCompte2();
+        Double montant   = montantC1 != null ? montantC1 : montantC2;
+
+        if (libelle.isBlank() || montant == null) {
+            throw new IllegalArgumentException("Ligne " + ligne + " invalide pour le transfert");
+        }
+
+        String nextMonthKey = reader.computeNextMonthKey(monthKey);
+        if (nextMonthKey == null) {
+            throw new IllegalStateException("Impossible de calculer le mois suivant pour : " + monthKey);
+        }
+
+        addOperation(nextMonthKey, new OperationRequest(libelle, compte, montant, false, null, null));
+        writer.deleteRow(reader.resolveSheetId(monthKey), ligne);
+        return nextMonthKey;
     }
 
     // -------------------------------------------------------------------------
@@ -95,6 +124,7 @@ public class GoogleSheetsService {
     // -------------------------------------------------------------------------
 
     public void depointeOperation(String monthKey, int ligne) throws IOException {
+        if (!reader.sheetExists(monthKey)) throw new IllegalStateException("Onglet introuvable : " + monthKey);
         List<Object> row = reader.readRow(monthKey, ligne);
         String libelle       = row.size() > 1 ? row.get(1).toString() : "";
         Double montantC1 = row.size() > 2 ? reader.parseDouble(row.get(2).toString()) : null;
@@ -104,7 +134,7 @@ public class GoogleSheetsService {
 
         // add d'abord (zone à venir, n'affecte pas la zone réelle), delete ensuite
         // → évite la perte définitive si l'add échoue
-        addOperation(monthKey, new OperationRequest(libelle, compte, montant, false, null));
+        addOperation(monthKey, new OperationRequest(libelle, compte, montant, false, null, null));
         writer.deleteRow(reader.resolveSheetId(monthKey), ligne);
     }
 
@@ -207,6 +237,33 @@ public class GoogleSheetsService {
                 writer.clearRange(monthKey, "A" + mouvOpsStart + ":D" + mouvOpsEnd);
             }
         }
+
+        if (recIdx >= 0 && prevIdx >= 0) {
+            populateRecurrentsFromTemplate(monthKey, recIdx, prevIdx);
+        }
+    }
+
+    private void populateRecurrentsFromTemplate(String monthKey, int recIdx, int prevIdx) throws IOException {
+        List<SheetReader.RecurrentEntry> entries = reader.readRecurrentsTemplate();
+        if (entries.isEmpty()) return;
+
+        int recStart  = recIdx + 2;  // 1-based, première ligne après le label récurrents
+        int recEnd    = prevIdx;     // 1-based, dernière ligne avant "Prévisionnel fin de mois"
+
+        if (recStart <= recEnd) {
+            writer.clearRange(monthKey, "A" + recStart + ":D" + recEnd);
+        }
+
+        int available = Math.max(0, recEnd - recStart + 1);
+        if (entries.size() > available) {
+            int newSheetId = reader.resolveSheetId(monthKey);
+            writer.insertRowsBefore(newSheetId, recEnd + 1, entries.size() - available);
+        }
+
+        for (int i = 0; i < entries.size(); i++) {
+            SheetReader.RecurrentEntry e = entries.get(i);
+            writer.writeRecurrentRow(monthKey, recStart + i, e.libelle(), e.montantCCM(), e.montantBourso());
+        }
     }
 
     /**
@@ -224,6 +281,13 @@ public class GoogleSheetsService {
         Integer templateId = reader.getSheetId(SheetReader.TEMPLATE_SHEET);
         if (templateId == null) throw new IllegalStateException("Onglet TEMPLATE introuvable");
         writer.duplicateSheet(templateId, monthKey);
+
+        List<List<Object>> newValues = reader.readAllRows(monthKey);
+        int recIdx  = reader.findRecurrentsRow(newValues);
+        int prevIdx = reader.findPrevisionnelRow(newValues);
+        if (recIdx >= 0 && prevIdx >= 0) {
+            populateRecurrentsFromTemplate(monthKey, recIdx, prevIdx);
+        }
     }
 
     // -------------------------------------------------------------------------

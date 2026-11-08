@@ -15,22 +15,23 @@
 config/
   GoogleSheetsConfig.java       Service Account OAuth2
   GoogleSheetsProperties.java   spreadsheet-id, credentials-path
-  AppProperties.java            app.username/password, comptes (compte1/compte2),
-                                libelle-budget-courses, labels-zones (configurables)
+  AppProperties.java            @Validated — app.username/password (@NotBlank, fail-fast),
+                                comptes (compte1/compte2), libelle-budget-courses,
+                                labels-zones (configurables)
   CorsProperties.java           @ConfigurationProperties(prefix="cors"), origines CORS
   SecurityConfig.java           JWT stateless, CORS, BCrypt
 
 controller/
   AuthController.java           POST /api/auth/login
-  MonthController.java          CRUD mois + opérations
+  MonthController.java          CRUD mois + opérations — @Pattern("[A-Za-z]{2,12}[0-9]{4}") sur tous les {monthKey}
   DiagnosticController.java     GET /api/status
   GlobalExceptionHandler.java
 
 dto/
   MonthData.java                réponse GET mois (record + Operation inner record)
-  OperationRequest.java         body POST opération
+  OperationRequest.java         body POST opération (libelle, compte, montant, dejaDebite, date, deduireDesCourses?)
   OperationResponse.java        {created, message}
-  UpdateOperationRequest.java   libelle, date, montant, compte
+  UpdateOperationRequest.java   @NotBlank libelle, date, montant (null = vide cellule), @NotBlank compte
   PointerRequest.java           date, libelle, montant, deduireDesCourses + montantAsDouble()
   LoginRequest.java / LoginResponse.java
 
@@ -45,7 +46,12 @@ security/
 service/
   GoogleSheetsService.java      orchestrateur métier pur, injecte SheetReader + SheetWriter
   SheetReader.java              toutes les lectures API Google Sheets + helpers purs
+                                  computeNextMonthKey(monthKey) : calcul mois suivant sans accès API
+                                  readRecurrentsTemplate() : lit l'onglet RECURRENTS → List<RecurrentEntry>
+                                  record RecurrentEntry(libelle, montantCCM, montantBourso)
+                                  getMonthKeys() : filtre TEMPLATE et l'onglet RECURRENTS (via appProperties.labelsZones.recurrentsTemplate)
   SheetWriter.java              toutes les écritures API Google Sheets
+                                  writeRecurrentRow(monthKey, ligne, libelle, montantCCM, montantBourso)
   StatusService.java            injecte SheetReader, checkConnectivity()
 
 util/
@@ -61,12 +67,13 @@ util/
 | GET | `/api/months` | Oui | Liste des onglets (hors TEMPLATE) triés |
 | GET | `/api/months/{key}` | Oui | Données du mois |
 | POST | `/api/months/{key}/operations` | Oui | Ajoute une opération (crée le mois si besoin) |
-| PATCH | `/api/months/{key}/operations/{ligne}` | Oui | Modifie une opération existante |
+| PATCH | `/api/months/{key}/operations/{ligne}` | Oui | Modifie une opération existante (`montant: null` → vide la cellule) |
 | DELETE | `/api/months/{key}/operations/{ligne}` | Oui | Supprime une opération |
 | POST | `/api/months/{key}/pointer/{ligne}` | Oui | Pointe une opération prévisionnelle |
 | POST | `/api/months/{key}/depointer-reel/{ligne}` | Oui | Dépointé : remet en zone "à venir" + supprime du réel |
+| POST | `/api/months/{key}/operations/{ligne}/transferer` | Oui | Transfère une opération au mois suivant — retourne `{ targetMonth }` |
 
-Endpoints publics : `/api/auth/login`, `/api/status`
+Endpoints publics (sans JWT) : `/api/auth/login`, `/api/status`
 
 ## Structure du Google Sheet
 
@@ -100,6 +107,7 @@ Labels détectés dynamiquement : scan col B, normalisation minuscules + suppres
 2. `insertRowsBefore` avec `inheritFromBefore=true` si besoin
 3. `updateReelFormulas` : regex `:C\d+` → `:C{nouvelleFin}` sur la ligne "Réel"
 4. Écrire l'opération avec sa date
+5. Si `deduireDesCourses=true` → `deduireDuBudgetCourses` (soustrait du montant de la ligne identifiée par `app.libelle-budget-courses`)
 
 **dejaDebite=false** → zone "Mouvement à venir"
 1. `findNextFreeAVenirRow`
@@ -114,22 +122,33 @@ Body `PointerRequest` (tous optionnels) : `date` (jour 1-31), `libelle` (modifia
 
 **Décalage critique** : après `insertRowsBefore`, corriger via `computeActualLigne(ligne, insertRow, rowsToInsert)`.
 
-**Budget courses** : si `deduireDesCourses=true`, le montant est soustrait de la ligne identifiée par `app.libelle-budget-courses` dans les récurrents.
+**Budget courses** : si `deduireDesCourses=true`, le montant est soustrait de la ligne identifiée par `app.libelle-budget-courses` dans les récurrents. Cette logique est partagée avec l'ajout d'opération (`dejaDebite=true && deduireDesCourses=true`).
+
+### Transfert au mois suivant
+
+`transfererOperation(monthKey, ligne)` :
+1. Lit la ligne, détermine libellé / compte / montant
+2. `computeNextMonthKey(monthKey)` : calcul pur sans API (Decembre → Janvier année+1)
+3. `addOperation(nextMonthKey, ..., dejaDebite=false)` → crée le mois suivant si besoin
+4. `deleteRow` sur la ligne source
+5. Retourne `nextMonthKey`
 
 ### Dépointage
 
-`POST /depointer-reel/{ligne}` : lit la ligne réelle, la réinsère en zone "à venir" (via `addOperation` avec `dejaDebite=false`), puis supprime la ligne réelle originale.
+`POST /depointer-reel/{ligne}` : vérifie d'abord que l'onglet existe (`sheetExists` — guard pour éviter une création de mois non intentionnelle), lit la ligne réelle, la réinsère en zone "à venir" (via `addOperation` avec `dejaDebite=false`), puis supprime la ligne réelle originale.
 
 ### Création nouveau mois
 
-Déclenchée automatiquement au 1er POST /operations sur un mois inexistant.
+Déclenchée automatiquement au 1er POST /operations sur un mois inexistant (ou lors d'un transfert).
 
 1. Trouver le mois précédent (tri par `année*100+mois`)
 2. Dupliquer l'onglet du mois précédent (fallback : TEMPLATE)
 3. `C2:D2` ← valeurs de la ligne "Prévisionnel fin de mois" du mois précédent
 4. Effacer zone réelle : `A4:D{ligneReel-1}`
 5. Effacer zone "Mouvement à venir" (labels + ligne vide préservés)
-6. Conserver "Mouvements récurrents" avec leurs montants
+6. Peupler "Mouvements récurrents" depuis l'onglet maître `RECURRENTS` (via `populateRecurrentsFromTemplate`)
+   - Efface l'ancienne zone récurrents, insère des lignes si besoin, écrit chaque entrée avec CCM et Bourso séparés
+   - Si l'onglet `RECURRENTS` est absent : warning en log, pas d'erreur fatale (récurrents conservés tels quels)
 
 ## Configuration (`application.yml`)
 
@@ -141,7 +160,7 @@ Variables d'environnement systemd à définir :
 - `CORS_ALLOWED_ORIGINS`, `SERVER_PORT`
 - `APP_COMPTE1` (défaut `CCM`), `APP_COMPTE2` (défaut `Boursorama`)
 - `APP_LIBELLE_COURSES` (défaut `Course`)
-- Labels zones (tous optionnels) : `APP_LABEL_REEL`, `APP_LABEL_MOUVEMENT_A_VENIR`, `APP_LABEL_MOUVEMENTS_RECURRENTS`, `APP_LABEL_PREVISIONNEL`
+- Labels zones (tous optionnels) : `APP_LABEL_REEL`, `APP_LABEL_MOUVEMENT_A_VENIR`, `APP_LABEL_MOUVEMENTS_RECURRENTS`, `APP_LABEL_PREVISIONNEL`, `APP_LABEL_RECURRENTS_TEMPLATE` (défaut `RECURRENTS`)
 
 ## Déploiement
 

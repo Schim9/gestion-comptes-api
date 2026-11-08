@@ -8,12 +8,14 @@ import com.famille.gestioncompte.dto.UpdateOperationRequest;
 import com.famille.gestioncompte.service.GoogleSheetsService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 @Validated
 @RestController
@@ -32,13 +34,13 @@ public class MonthController {
     }
 
     @GetMapping("/{monthKey}")
-    public ResponseEntity<MonthData> getMonth(@PathVariable String monthKey) throws IOException {
+    public ResponseEntity<MonthData> getMonth(@PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey) throws IOException {
         return ResponseEntity.ok(sheetsService.getMonthData(monthKey));
     }
 
     @PostMapping("/{monthKey}/operations")
     public ResponseEntity<OperationResponse> addOperation(
-            @PathVariable String monthKey,
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
             @Valid @RequestBody OperationRequest request) throws IOException {
 
         boolean created = sheetsService.addOperation(monthKey, request);
@@ -48,7 +50,7 @@ public class MonthController {
 
     @PatchMapping("/{monthKey}/operations/{ligne}")
     public ResponseEntity<Void> updateOperation(
-            @PathVariable String monthKey,
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
             @PathVariable @Min(1) int ligne,
             @Valid @RequestBody UpdateOperationRequest request) throws IOException {
         sheetsService.updateOperation(monthKey, ligne, request);
@@ -57,7 +59,7 @@ public class MonthController {
 
     @DeleteMapping("/{monthKey}/operations/{ligne}")
     public ResponseEntity<Void> deleteOperation(
-            @PathVariable String monthKey,
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
             @PathVariable @Min(1) int ligne) throws IOException {
         sheetsService.deleteOperation(monthKey, ligne);
         return ResponseEntity.ok().build();
@@ -65,15 +67,23 @@ public class MonthController {
 
     @PostMapping("/{monthKey}/depointer-reel/{ligne}")
     public ResponseEntity<Void> depointeOperation(
-            @PathVariable String monthKey,
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
             @PathVariable @Min(1) int ligne) throws IOException {
         sheetsService.depointeOperation(monthKey, ligne);
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/{monthKey}/operations/{ligne}/transferer")
+    public ResponseEntity<Map<String, String>> transfererOperation(
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
+            @PathVariable @Min(1) int ligne) throws IOException {
+        String targetMonth = sheetsService.transfererOperation(monthKey, ligne);
+        return ResponseEntity.ok(Map.of("targetMonth", targetMonth));
+    }
+
     @PostMapping("/{monthKey}/pointer/{ligne}")
     public ResponseEntity<Void> pointerOperation(
-            @PathVariable String monthKey,
+            @PathVariable @Pattern(regexp = "[A-Za-z]{2,12}[0-9]{4}") String monthKey,
             @PathVariable @Min(1) int ligne,
             @Valid @RequestBody(required = false) PointerRequest body) throws IOException {
 

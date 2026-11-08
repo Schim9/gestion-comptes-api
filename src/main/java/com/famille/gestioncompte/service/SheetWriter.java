@@ -101,7 +101,7 @@ public class SheetWriter {
         List<List<Object>> rows = response.getValues();
         if (rows == null || rows.isEmpty()) return;
         List<Object> updatedRow = new ArrayList<>();
-        for (Object cell : rows.get(0)) {
+        for (Object cell : rows.getFirst()) {
             String updated = cell.toString()
                     .replaceAll("([CD])(\\d+):", "$1" + SheetReader.REEL_OPS_FIRST_ROW + ":")
                     .replaceAll(":([CD])(\\d+)", ":$1" + newRangeEnd);
@@ -111,6 +111,21 @@ public class SheetWriter {
                 .update(properties.getSpreadsheetId(), range,
                         new ValueRange().setRange(range).setValues(List.of(updatedRow)))
                 .setValueInputOption("USER_ENTERED")
+                .execute();
+    }
+
+    public void writeRecurrentRow(String monthKey, int ligne, String libelle,
+                                   Double montantCCM, Double montantBourso) throws IOException {
+        List<Object> row = new ArrayList<>();
+        row.add("");                                           // A: date (vide)
+        row.add(libelle);                                      // B: libellé
+        row.add(montantCCM   != null ? montantCCM   : "");   // C: CCM
+        row.add(montantBourso != null ? montantBourso : ""); // D: Boursorama
+        String range = monthKey + "!A" + ligne + ":D" + ligne;
+        ValueRange body = new ValueRange().setRange(range).setValues(List.of(row));
+        sheets.spreadsheets().values()
+                .update(properties.getSpreadsheetId(), range, body)
+                .setValueInputOption("RAW")
                 .execute();
     }
 

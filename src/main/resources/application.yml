@@ -19,6 +19,7 @@ app:
     mouvement-a-venir: ${APP_LABEL_MOUVEMENT_A_VENIR:Mouvement à venir}
     mouvements-recurrents: ${APP_LABEL_MOUVEMENTS_RECURRENTS:Mouvements récurrents}
     previsionnel-fin-de-mois: ${APP_LABEL_PREVISIONNEL:Prévisionnel fin de mois}
+    recurrents-template: ${APP_LABEL_RECURRENTS_TEMPLATE:RECURRENTS}
 
 server:
   port: ${SERVER_PORT:8080}

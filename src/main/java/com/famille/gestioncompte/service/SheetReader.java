@@ -27,6 +27,11 @@ public class SheetReader {
             Map.entry("Octobre", 10), Map.entry("Novembre", 11), Map.entry("Decembre", 12)
     );
 
+    private static final List<String> MONTH_NAMES = List.of(
+            "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
+            "Juillet", "Aout", "Septembre", "Octobre", "Novembre", "Decembre"
+    );
+
     private final Sheets sheets;
     private final GoogleSheetsProperties properties;
     private final AppProperties appProperties;
@@ -54,7 +59,8 @@ public class SheetReader {
                 .execute();
         return spreadsheet.getSheets().stream()
                 .map(s -> s.getProperties().getTitle())
-                .filter(title -> !TEMPLATE_SHEET.equals(title))
+                .filter(title -> !TEMPLATE_SHEET.equals(title)
+                        && !appProperties.getLabelsZones().getRecurrentsTemplate().equals(title))
                 .sorted(Comparator.comparingInt(this::monthSortKey))
                 .toList();
     }
@@ -129,7 +135,7 @@ public class SheetReader {
                 .execute();
         List<List<Object>> rows = response.getValues();
         if (rows == null || rows.isEmpty()) throw new IllegalArgumentException("Ligne introuvable : " + ligne);
-        return rows.get(0);
+        return rows.getFirst();
     }
 
     Integer getSheetId(String monthKey) throws IOException {
@@ -147,6 +153,23 @@ public class SheetReader {
         Integer id = getSheetId(monthKey);
         if (id == null) throw new IllegalStateException("Onglet introuvable : " + monthKey);
         return id;
+    }
+
+    String computeNextMonthKey(String monthKey) {
+        for (Map.Entry<String, Integer> entry : MONTH_ORDER.entrySet()) {
+            if (monthKey.startsWith(entry.getKey())) {
+                try {
+                    int year = Integer.parseInt(monthKey.substring(entry.getKey().length()));
+                    int monthNum = entry.getValue();
+                    int nextMonthNum = (monthNum % 12) + 1;
+                    int nextYear = monthNum == 12 ? year + 1 : year;
+                    return MONTH_NAMES.get(nextMonthNum - 1) + nextYear;
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     String findPreviousMonth(String monthKey) throws IOException {
@@ -256,6 +279,34 @@ public class SheetReader {
             }
         }
         return lastFilled + 2;
+    }
+
+    // -------------------------------------------------------------------------
+    // Onglet RECURRENTS — liste maître
+    // -------------------------------------------------------------------------
+
+    public record RecurrentEntry(String libelle, Double montantCCM, Double montantBourso) {}
+
+    public List<RecurrentEntry> readRecurrentsTemplate() throws IOException {
+        String tabName = appProperties.getLabelsZones().getRecurrentsTemplate();
+        List<RecurrentEntry> result = new ArrayList<>();
+        try {
+            ValueRange response = sheets.spreadsheets().values()
+                    .get(properties.getSpreadsheetId(), tabName + "!A:C")
+                    .execute();
+            List<List<Object>> values = response.getValues();
+            if (values == null) return result;
+            for (List<Object> row : values) {
+                String libelle = !row.isEmpty() ? row.get(0).toString().trim() : "";
+                if (libelle.isBlank()) continue;
+                Double montantCCM    = row.size() > 1 ? parseDouble(row.get(1).toString()) : null;
+                Double montantBourso = row.size() > 2 ? parseDouble(row.get(2).toString()) : null;
+                result.add(new RecurrentEntry(libelle, montantCCM, montantBourso));
+            }
+        } catch (Exception e) {
+            log.warn("Onglet '{}' introuvable ou illisible — récurrents non peuplés : {}", tabName, e.getMessage());
+        }
+        return result;
     }
 
     // -------------------------------------------------------------------------

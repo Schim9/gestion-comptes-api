@@ -1,13 +1,16 @@
 package com.famille.gestioncompte.config;
 
+import jakarta.validation.constraints.NotBlank;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.validation.annotation.Validated;
 
+@Validated
 @Component
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
-    private String username;
-    private String password;
+    @NotBlank private String username;
+    @NotBlank private String password;
     private String libelleBudgetCourses = "Course";
     private Comptes comptes = new Comptes();
     private LabelsZones labelsZones = new LabelsZones();
@@ -38,6 +41,7 @@ public class AppProperties {
         private String mouvementAVenir = "Mouvement à venir";
         private String mouvementsRecurrents = "Mouvements récurrents";
         private String previsionnelFinDeMois = "Prévisionnel fin de mois";
+        private String recurrentsTemplate = "RECURRENTS";
 
         public String getReel() { return reel; }
         public void setReel(String reel) { this.reel = reel; }
@@ -47,5 +51,7 @@ public class AppProperties {
         public void setMouvementsRecurrents(String v) { this.mouvementsRecurrents = v; }
         public String getPrevisionnelFinDeMois() { return previsionnelFinDeMois; }
         public void setPrevisionnelFinDeMois(String v) { this.previsionnelFinDeMois = v; }
+        public String getRecurrentsTemplate() { return recurrentsTemplate; }
+        public void setRecurrentsTemplate(String v) { this.recurrentsTemplate = v; }
     }
 }

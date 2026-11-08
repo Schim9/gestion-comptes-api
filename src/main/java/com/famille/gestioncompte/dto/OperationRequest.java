@@ -8,5 +8,6 @@ public record OperationRequest(
         @NotBlank String compte,
         @NotNull Double montant,
         @NotNull Boolean dejaDebite,
-        String date
+        String date,
+        Boolean deduireDesCourses
 ) {}
