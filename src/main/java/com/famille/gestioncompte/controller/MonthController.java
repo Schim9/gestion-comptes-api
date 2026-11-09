@@ -87,11 +87,10 @@ public class MonthController {
             @PathVariable @Min(1) int ligne,
             @Valid @RequestBody(required = false) PointerRequest body) throws IOException {
 
-        String date               = body != null ? body.date()               : null;
-        String libelle            = body != null ? body.libelle()             : null;
-        Double montant            = body != null ? body.montantAsDouble()     : null;
-        boolean deduireDesCourses = body != null && body.deduireDesCourses();
-        sheetsService.pointerOperation(monthKey, ligne, date, libelle, montant, deduireDesCourses);
+        String date    = body != null ? body.date()           : null;
+        String libelle = body != null ? body.libelle()         : null;
+        Double montant = body != null ? body.montantAsDouble() : null;
+        sheetsService.pointerOperation(monthKey, ligne, date, libelle, montant);
         return ResponseEntity.ok().build();
     }
 }

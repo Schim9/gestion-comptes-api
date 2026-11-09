@@ -74,7 +74,7 @@ public class GoogleSheetsService {
             }
             writer.writeOperation(monthKey, ligne, null, request.libelle(), request.compte(), request.montant());
         }
-        if (dejaDebite && Boolean.TRUE.equals(request.deduireDesCourses())) {
+        if (Boolean.TRUE.equals(request.deduireDesCourses())) {
             deduireDuBudgetCourses(monthKey, request.montant());
         }
         return created;
@@ -143,9 +143,9 @@ public class GoogleSheetsService {
     // -------------------------------------------------------------------------
 
     public void pointerOperation(String monthKey, int ligne, String date, String libelle,
-                                 Double montantOverride, boolean deduireDesCourses) throws IOException {
-        log.info("[POINTAGE] Début — mois={}, ligne={}, date={}, libelle={}, montantOverride={}, deduireDesCourses={}",
-                monthKey, ligne, date, libelle, montantOverride, deduireDesCourses);
+                                 Double montantOverride) throws IOException {
+        log.info("[POINTAGE] Début — mois={}, ligne={}, date={}, libelle={}, montantOverride={}",
+                monthKey, ligne, date, libelle, montantOverride);
 
         int sheetId = reader.resolveSheetId(monthKey);
         List<List<Object>> values = reader.readAllRows(monthKey);
@@ -187,10 +187,6 @@ public class GoogleSheetsService {
             log.info("[POINTAGE] À venir → deleteRow sur ligne {}", actualLigne);
             writer.deleteRow(sheetId, actualLigne);
             log.info("[POINTAGE] deleteRow terminé pour ligne {}", actualLigne);
-        }
-
-        if (deduireDesCourses && montant != null) {
-            deduireDuBudgetCourses(monthKey, montant);
         }
 
         log.info("[POINTAGE] Fin — mois={}, opération terminée avec succès", monthKey);

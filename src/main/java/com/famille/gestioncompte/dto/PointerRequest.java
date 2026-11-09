@@ -3,8 +3,7 @@ package com.famille.gestioncompte.dto;
 public record PointerRequest(
         String date,
         String libelle,
-        String montant,
-        boolean deduireDesCourses
+        String montant
 ) {
     public Double montantAsDouble() {
         if (montant == null || montant.isBlank()) return null;
